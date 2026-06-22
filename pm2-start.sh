@@ -2,6 +2,11 @@
 # Open Design PM2 wrapper
 # tools-dev spawns daemon+web as background sidecars then exits.
 # This script starts them, waits for ports, then tails the log to stay alive.
+#
+# Known issues fixed:
+#   - Corepack pnpm@10.33.2 SIGABRT on Node 24.16.0 → use npx fallback
+#   - @open-design/contracts not hoisted to root node_modules (pnpm strict)
+#     → symlink before start so daemon ESM resolves from workspace root CWD
 
 set -e
 cd /home/phat/stack/open-design
@@ -10,8 +15,24 @@ cd /home/phat/stack/open-design
 pkill -f 'open-design.*sidecar' 2>/dev/null || true
 sleep 1
 
+# Fix: ensure @open-design/contracts is resolvable from workspace root.
+# pnpm strict mode only places it in apps/daemon/node_modules/, but daemon
+# spawns with CWD=workspaceRoot so ESM can't find it. Symlink if missing.
+if [ ! -e node_modules/@open-design/contracts ]; then
+  ln -sf ../../packages/contracts node_modules/@open-design/contracts
+  echo "Symlinked @open-design/contracts to root node_modules"
+fi
+
+# Fix: corepack pnpm@10.33.2 crashes with SIGABRT on Node 24.16.0.
+# Use npx to invoke the correct pnpm version as fallback.
+PNPM_CMD="pnpm"
+if ! pnpm --version >/dev/null 2>&1; then
+  PNPM_CMD="npx -y pnpm@10.33.2"
+  echo "Using npx fallback for pnpm (corepack crash detected)"
+fi
+
 # Start daemon + web
-pnpm tools-dev start web --daemon-port 7456 --web-port 7457
+$PNPM_CMD tools-dev start web --daemon-port 7456 --web-port 7457
 
 # Wait for both ports
 for port in 7456 7457; do

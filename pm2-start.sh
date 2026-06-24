@@ -15,13 +15,21 @@ cd /home/phat/stack/open-design
 pkill -f 'open-design.*sidecar' 2>/dev/null || true
 sleep 1
 
-# Fix: ensure @open-design/contracts is resolvable from workspace root.
-# pnpm strict mode only places it in apps/daemon/node_modules/, but daemon
-# spawns with CWD=workspaceRoot so ESM can't find it. Symlink if missing.
-if [ ! -e node_modules/@open-design/contracts ]; then
-  ln -sf ../../packages/contracts node_modules/@open-design/contracts
-  echo "Symlinked @open-design/contracts to root node_modules"
-fi
+# Fix: ensure ALL @open-design/* workspace packages are resolvable from root.
+# pnpm strict mode only symlinks into app-level node_modules/, but daemon
+# spawns with CWD=workspaceRoot so ESM can't find packages not hoisted to root.
+for dir in packages/* apps/* tools/*; do
+  [ -d "$dir" ] || continue
+  pkg_name=$(sed -n 's/.*"name": *"\(@open-design\/[^"]*\)".*/\1/p' "$dir/package.json" 2>/dev/null)
+  [ -z "$pkg_name" ] && continue
+  link_name="node_modules/${pkg_name}"
+  if [ ! -e "$link_name" ]; then
+    # compute relative path from node_modules/@open-design/ back to workspace
+    rel=$(python3 -c "import os.path; print(os.path.relpath('$dir', 'node_modules/@open-design/'))")
+    ln -sf "$rel" "$link_name"
+    echo "Symlinked ${pkg_name} → ${rel}"
+  fi
+done
 
 # Fix: corepack pnpm@10.33.2 crashes with SIGABRT on Node 24.16.0.
 # Use npx to invoke the correct pnpm version as fallback.

@@ -39,6 +39,9 @@ if ! pnpm --version >/dev/null 2>&1; then
   echo "Using npx fallback for pnpm (corepack crash detected)"
 fi
 
+# Ensure all deps installed (catches missing packages after git pull)
+$PNPM_CMD install 2>/dev/null || true
+
 # Start daemon + web
 $PNPM_CMD tools-dev start web --daemon-port 7456 --web-port 7457
 
